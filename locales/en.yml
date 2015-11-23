@@ -7,3 +7,4 @@ en:
       before: "must be before %{date}"
       before_or_equal_to: "must be before or equal to %{date}"
       equal_to: "must be equal to %{date}"
+      format: "invalid date format"

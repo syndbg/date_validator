@@ -13,9 +13,13 @@ module ActiveModel
     class DateValidator < ActiveModel::EachValidator
 
       # Implemented checks and their associated operators.
-      CHECKS = { after: :>,  after_or_equal_to: :>=,
-                before: :<, before_or_equal_to: :<=,
-                equal_to: :==
+      CHECKS = {
+        format: ->(string, date_format) { DateTime.strptime(string, date_format) },
+        after: :>,
+        after_or_equal_to: :>=,
+        before: :<,
+        before_or_equal_to: :<=,
+        equal_to: :==
       }.freeze
 
       # Call `#initialize` on the superclass, adding a default
@@ -29,9 +33,19 @@ module ActiveModel
       # They must be either any kind of Time, a Proc, or a Symbol.
       def check_validity!
         keys = CHECKS.keys
+
+        all_args_msg = ':%s must be a time, a date, a time_with_zone, a symbol a proc.'
+
         options.slice(*keys).each do |option, value|
-          next if is_time?(value) || value.is_a?(Proc) || value.is_a?(Symbol) || (defined?(ActiveSupport::TimeWithZone) and value.is_a? ActiveSupport::TimeWithZone)
-          raise ArgumentError, ":#{option} must be a time, a date, a time_with_zone, a symbol or a proc"
+          next if (option == :format && value.is_a?(String)) ||
+                  is_time?(value) || value.is_a?(Proc) || value.is_a?(Symbol) ||
+                  (defined?(ActiveSupport::TimeWithZone) && value.is_a?(ActiveSupport::TimeWithZone))
+
+          if option == :format
+            fail ArgumentError, ':format must be a string.'
+          else
+            fail ArgumentError, all_args_msg % value
+          end
         end
       end
 
@@ -51,10 +65,10 @@ module ActiveModel
         before_type_cast = :"#{attr_name}_before_type_cast"
 
         value_before_type_cast = if record.respond_to?(before_type_cast)
-          record.send(before_type_cast)
-        else
-          nil
-        end
+                                   record.send(before_type_cast)
+                                 else
+                                   nil
+                                 end
 
         if value_before_type_cast.present? && value.nil?
           record.errors.add(attr_name, :not_a_date, options)
@@ -68,9 +82,19 @@ module ActiveModel
           return
         end
 
-        options.slice(*CHECKS.keys).each do |option, option_value|
-          option_value = option_value.call(record) if option_value.is_a?(Proc)
-          option_value = record.send(option_value) if option_value.is_a?(Symbol)
+        begin
+          value = CHECKS[:format].call(value, options[:format]) if value.is_a?(String) && options[:format]
+        rescue ArgumentError
+          record.errors.add(attr_name, :format)
+          return
+        end
+
+        options.slice(*CHECKS.except(:format).keys).each do |option, option_value|
+          option_value = if option_value.is_a?(Proc)
+                           option_value.call(record)
+                         elsif option_value.is_a?(Symbol)
+                           record.send(option_value)
+                         end
 
           original_value = value
           original_option_value = option_value
@@ -98,7 +122,7 @@ module ActiveModel
       private
 
       def is_time?(object)
-        object.is_a?(Time) || (defined?(Date) and object.is_a?(Date)) || (defined?(ActiveSupport::TimeWithZone) and object.is_a?(ActiveSupport::TimeWithZone))
+        object.is_a?(Time) || (defined?(Date) && object.is_a?(Date)) || (defined?(ActiveSupport::TimeWithZone) && object.is_a?(ActiveSupport::TimeWithZone))
       end
     end
 
